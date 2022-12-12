@@ -72,6 +72,12 @@ temp/**
 
 # frontend assets
 datahub-frontend/public/**
+datahub-frontend/test/resources/public/**
 
 .remote*
+<<<<<<< HEAD
 node_modules
+=======
+# Ignore runtime generated authenticatior/authorizer jar files
+metadata-service/plugin/src/test/resources/sample-plugins/**
+>>>>>>> origin/master
