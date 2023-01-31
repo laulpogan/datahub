@@ -5,6 +5,7 @@ import * as path from "path";
 import { Octokit } from "@octokit/rest";
 import { throttling } from "@octokit/plugin-throttling";
 import { retry } from "@octokit/plugin-retry";
+import fetch from "node-fetch";
 
 // Note: this must be executed within the docs-website directory.
 
@@ -526,6 +527,53 @@ function write_markdown_file(
   }
 }
 
+async function checkBrokenLinks(
+  contents: matter.GrayMatterFile<string>,
+  filepath: string
+): Promise<void> {
+  var links = new Array<string>();
+  contents.content.replace(
+    // Look for the [text](url) syntax. Note that this will also capture images.
+    //
+    // We do a little bit of parenthesis matching here to account for parens in URLs.
+    // See https://stackoverflow.com/a/17759264 for explanation of the second capture group.
+    /\[(.*?)\]\(((?:[^)(]+|\((?:[^)(]+|\([^)(]*\))*\))*)\)/g,
+    (_, text, url) => {
+      links.push(url.trim());
+      return url.trim();
+    }
+  ) ?? [];
+  var colon_links =
+    contents.content.replace(
+      // Also look for the [text]: url syntax.
+      /^\[(.+?)\]\s*:\s*(.+?)\s*$/gm,
+
+      (_, text, url) => {
+        links.push(url.trim());
+        return url.trim();
+      }
+    ) ?? [];
+
+  for (var link of links) {
+    try {
+      if (!link.startsWith("http://") && !link.startsWith("https://")) {
+        link.replace(/^+(.*\/)$/i, "");
+        link.replace(".md", "");
+        link = HOSTED_SITE_URL + "/" + link;
+      }
+
+      const response = await fetch(link, { method: "HEAD" });
+      if (response.status != 200) {
+        console.log(
+          `Broken link error ${response.status} in ${filepath}: ${link}`
+        );
+      }
+    } catch (error) {
+      console.log(`Failed to check link  in ${filepath}: ${link}`);
+    }
+  }
+}
+
 (async function main() {
   for (const filepath of markdown_files) {
     //console.log("Processing:", filepath);
@@ -548,6 +596,15 @@ function write_markdown_file(
     const contents = await generate_releases_markdown();
     write_markdown_file(contents, `${OUTPUT_DIRECTORY}/releases.md`);
     markdown_files.push("releases.md");
+  }
+  for (const filepath of markdown_files) {
+    try {
+      const contents_string = fs.readFileSync(`../${filepath}`).toString();
+      const contents = matter(contents_string);
+      checkBrokenLinks(contents, filepath);
+    } catch (error) {
+      console.log(`Failed to check links in ${filepath}`);
+    }
   }
 
   // Error if a doc is not accounted for in a sidebar.
