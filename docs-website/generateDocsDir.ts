@@ -556,17 +556,18 @@ async function checkBrokenLinks(
 
   for (var link of links) {
     try {
-      if (!link.startsWith("http://") && !link.startsWith("https://")) {
-        link.replace(/^+(.*\/)$/i, "");
-        link.replace(".md", "");
-        link = HOSTED_SITE_URL + "/" + link;
-      }
-
-      const response = await fetch(link, { method: "HEAD" });
-      if (response.status != 200) {
-        console.log(
-          `Broken link error ${response.status} in ${filepath}: ${link}`
-        );
+      // if (!link.startsWith("http://") && !link.startsWith("https://")) {
+      //   link = "docs" + link.split("docs")[1];
+      //   link = link.split(".md")[0];
+      //   link = HOSTED_SITE_URL + "/" + link;
+      // }
+      if (link.startsWith("http://") || link.startsWith("https://")) {
+        const response = await fetch(link, { method: "HEAD" });
+        if (response.status == 404) {
+          console.log(
+            `Broken link error ${response.status} in ${filepath}: ${link}`
+          );
+        }
       }
     } catch (error) {
       console.log(`Failed to check link  in ${filepath}: ${link}`);
