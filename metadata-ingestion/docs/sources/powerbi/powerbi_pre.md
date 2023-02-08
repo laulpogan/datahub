@@ -1,10 +1,12 @@
 ## Configuration Notes
 See the 
-1. [Microsoft AD App Creation doc](https://docs.microsoft.com/en-us/power-bi/developer/embedded/embed-service-principal) for the steps to create an app client ID and secret
-2. Login to Power BI as Admin and from Tenant settings allow below permissions
-- Allow service principles to use Power BI APIs
-- Allow service principals to use read-only Power BI admin APIs
-- Enhance admin APIs responses with detailed metadata
+1. [Microsoft AD App Creation doc](https://docs.microsoft.com/en-us/power-bi/developer/embedded/embed-service-principal) for the steps to create an app client ID and secret and allow service principals to use Power BI APIs
+2. Login to Power BI as Admin and from `Admin API settings` allow below permissions
+
+    - Allow service principals to use read-only admin APIs
+    - Enhance admin APIs responses with detailed metadata
+    - Enhance admin APIs responses with DAX and mashup expressions
+
 ## Concept mapping 
 
 | Power BI              | Datahub                 |                                                                                               
@@ -95,3 +97,9 @@ combine_result
 `Pattern-2` is *not* supported for upstream table lineage extraction as it uses nested item-selector i.e. {Source{[Schema="public",Item="book"]}[Data], Source{[Schema="public",Item="issue_history"]}[Data]} as argument to M-QUery table function i.e. Table.Combine
 
 `Pattern-1` is supported as it first assign the table from schema to variable and then variable is used in M-Query Table function i.e. Table.Combine
+
+## Extract endorsements to tags
+
+By default, extracting endorsement information to tags is disabled. The feature may be useful if organization uses [endorsements](https://learn.microsoft.com/en-us/power-bi/collaborate-share/service-endorse-content) to identify content quality.
+
+Please note that the default implementation overwrites tags for the ingested entities, if you need to preserve existing tags, consider using a [transformer](../../../../metadata-ingestion/docs/transformer/dataset_transformer.md#simple-add-dataset-globaltags) with `semantics: PATCH` tags instead of `OVERWRITE`.
