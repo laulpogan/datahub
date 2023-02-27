@@ -1,4 +1,5 @@
-import { EntityType, RecommendationRenderType, ScenarioType } from '../../types.generated';
+import { DataHubViewType, EntityType, RecommendationRenderType, ScenarioType } from '../../types.generated';
+import { Direction } from '../lineage/types';
 
 /**
  * Valid event types.
@@ -49,6 +50,17 @@ export enum EventType {
     DeleteIngestionSourceEvent,
     ExecuteIngestionSourceEvent,
     SsoEvent,
+    CreateViewEvent,
+    UpdateViewEvent,
+    SetGlobalDefaultViewEvent,
+    SetUserDefaultViewEvent,
+    ManuallyCreateLineageEvent,
+    ManuallyDeleteLineageEvent,
+    LineageGraphTimeRangeSelectionEvent,
+    LineageTabTimeRangeSelectionEvent,
+    CreateQueryEvent,
+    UpdateQueryEvent,
+    DeleteQueryEvent,
 }
 
 /**
@@ -382,6 +394,82 @@ export interface SsoEvent extends BaseEvent {
     type: EventType.SsoEvent;
 }
 
+export interface ManuallyCreateLineageEvent extends BaseEvent {
+    type: EventType.ManuallyCreateLineageEvent;
+    direction: Direction;
+    sourceEntityType?: EntityType;
+    sourceEntityPlatform?: string;
+    destinationEntityType?: EntityType;
+    destinationEntityPlatform?: string;
+}
+
+export interface ManuallyDeleteLineageEvent extends BaseEvent {
+    type: EventType.ManuallyDeleteLineageEvent;
+    direction: Direction;
+    sourceEntityType?: EntityType;
+    sourceEntityPlatform?: string;
+    destinationEntityType?: EntityType;
+    destinationEntityPlatform?: string;
+}
+
+/**
+ * Emitted when a new View is created.
+ */
+export interface CreateViewEvent extends BaseEvent {
+    type: EventType.CreateViewEvent;
+    viewType: DataHubViewType;
+}
+
+/**
+ * Emitted when an existing View is updated.
+ */
+export interface UpdateViewEvent extends BaseEvent {
+    type: EventType.UpdateViewEvent;
+    viewType: DataHubViewType;
+    urn: string;
+}
+
+/**
+ * Emitted when a user sets or clears their personal default view.
+ */
+export interface SetUserDefaultViewEvent extends BaseEvent {
+    type: EventType.SetUserDefaultViewEvent;
+    urn: string | null;
+    viewType: DataHubViewType | null;
+}
+
+/**
+ * Emitted when a user sets or clears the global default view.
+ */
+export interface SetGlobalDefaultViewEvent extends BaseEvent {
+    type: EventType.SetGlobalDefaultViewEvent;
+    urn: string | null;
+}
+
+export interface LineageGraphTimeRangeSelectionEvent extends BaseEvent {
+    type: EventType.LineageGraphTimeRangeSelectionEvent;
+    relativeStartDate: string;
+    relativeEndDate: string;
+}
+
+export interface LineageTabTimeRangeSelectionEvent extends BaseEvent {
+    type: EventType.LineageTabTimeRangeSelectionEvent;
+    relativeStartDate: string;
+    relativeEndDate: string;
+}
+
+export interface CreateQueryEvent extends BaseEvent {
+    type: EventType.CreateQueryEvent;
+}
+
+export interface UpdateQueryEvent extends BaseEvent {
+    type: EventType.UpdateQueryEvent;
+}
+
+export interface DeleteQueryEvent extends BaseEvent {
+    type: EventType.DeleteQueryEvent;
+}
+
 /**
  * Event consisting of a union of specific event types.
  */
@@ -430,4 +518,15 @@ export type Event =
     | DeleteIngestionSourceEvent
     | ExecuteIngestionSourceEvent
     | ShowStandardHomepageEvent
-    | SsoEvent;
+    | SsoEvent
+    | CreateViewEvent
+    | UpdateViewEvent
+    | SetUserDefaultViewEvent
+    | SetGlobalDefaultViewEvent
+    | ManuallyCreateLineageEvent
+    | ManuallyDeleteLineageEvent
+    | LineageGraphTimeRangeSelectionEvent
+    | LineageTabTimeRangeSelectionEvent
+    | CreateQueryEvent
+    | UpdateQueryEvent
+    | DeleteQueryEvent;

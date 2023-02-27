@@ -1,5 +1,8 @@
 package com.linkedin.metadata;
 
+import com.linkedin.common.urn.Urn;
+
+
 /**
  * Static class containing commonly-used constants across DataHub services.
  */
@@ -50,7 +53,8 @@ public class Constants {
   public static final String POST_ENTITY_NAME = "post";
   public static final String SCHEMA_FIELD_ENTITY_NAME = "schemaField";
   public static final String DATAHUB_STEP_STATE_ENTITY_NAME = "dataHubStepState";
-
+  public static final String DATAHUB_VIEW_ENTITY_NAME = "dataHubView";
+  public static final String QUERY_ENTITY_NAME = "query";
 
   /**
    * Aspects
@@ -69,6 +73,7 @@ public class Constants {
   public static final String SIBLINGS_ASPECT_NAME = "siblings";
   public static final String ORIGIN_ASPECT_NAME = "origin";
   public static final String INPUT_FIELDS_ASPECT_NAME = "inputFields";
+  public static final String EMBED_ASPECT_NAME = "embed";
 
   // User
   public static final String CORP_USER_KEY_ASPECT_NAME = "corpUserKey";
@@ -137,6 +142,7 @@ public class Constants {
 
   // DataPlatformInstance
   public static final String DATA_PLATFORM_INSTANCE_KEY_ASPECT_NAME = "dataPlatformInstanceKey";
+  public static final String DATA_PLATFORM_INSTANCE_PROPERTIES_ASPECT_NAME = "dataPlatformInstanceProperties";
 
   // ML Feature
   public static final String ML_FEATURE_KEY_ASPECT_NAME = "mlFeatureKey";
@@ -175,6 +181,7 @@ public class Constants {
 
   // Policy
   public static final String DATAHUB_POLICY_INFO_ASPECT_NAME = "dataHubPolicyInfo";
+
   // Role
   public static final String DATAHUB_ROLE_INFO_ASPECT_NAME = "dataHubRoleInfo";
 
@@ -236,13 +243,24 @@ public class Constants {
   public static final String DATA_HUB_UPGRADE_REQUEST_ASPECT_NAME = "dataHubUpgradeRequest";
   public static final String DATA_HUB_UPGRADE_RESULT_ASPECT_NAME = "dataHubUpgradeResult";
 
-
   // Invite Token
   public static final String INVITE_TOKEN_ASPECT_NAME = "inviteToken";
   public static final int INVITE_TOKEN_LENGTH = 32;
   public static final int SALT_TOKEN_LENGTH = 16;
   public static final int PASSWORD_RESET_TOKEN_LENGTH = 32;
 
+  // Views
+  public static final String DATAHUB_VIEW_KEY_ASPECT_NAME = "dataHubViewKey";
+  public static final String DATAHUB_VIEW_INFO_ASPECT_NAME = "dataHubViewInfo";
+
+  // Query
+  public static final String QUERY_PROPERTIES_ASPECT_NAME = "queryProperties";
+  public static final String QUERY_SUBJECTS_ASPECT_NAME = "querySubjects";
+
+  // Settings
+  public static final String GLOBAL_SETTINGS_ENTITY_NAME = "globalSettings";
+  public static final String GLOBAL_SETTINGS_INFO_ASPECT_NAME = "globalSettingsInfo";
+  public static final Urn GLOBAL_SETTINGS_URN = Urn.createFromTuple(GLOBAL_SETTINGS_ENTITY_NAME, 0);
 
   // Relationships
   public static final String IS_MEMBER_OF_GROUP_RELATIONSHIP_NAME = "IsMemberOfGroup";
@@ -250,6 +268,12 @@ public class Constants {
 
   public static final String CHANGE_EVENT_PLATFORM_EVENT_NAME = "entityChangeEvent";
 
+  /**
+   * Retention
+   */
+  public static final String DATAHUB_RETENTION_ENTITY = "dataHubRetention";
+  public static final String DATAHUB_RETENTION_ASPECT = "dataHubRetentionConfig";
+  public static final String DATAHUB_RETENTION_KEY_ASPECT = "dataHubRetentionKey";
   /**
    * User Status
    */
@@ -274,6 +298,10 @@ public class Constants {
   // Step
   public static final String DATAHUB_STEP_STATE_PROPERTIES_ASPECT_NAME = "dataHubStepStateProperties";
 
+
+  // Authorization
+  public static final String REST_API_AUTHORIZATION_ENABLED_ENV = "REST_API_AUTHORIZATION_ENABLED";
+
   // Metadata Change Event Parameter Names
 
   // Runs
@@ -285,6 +313,10 @@ public class Constants {
   public static final String PARENT_INSTANCE_URN_KEY = "parentInstanceUrn";
   public static final String DATA_FLOW_URN_KEY = "dataFlowUrn";
   public static final String DATA_JOB_URN_KEY = "dataJobUrn";
+
+  // Config
+  public static final String ELASTICSEARCH_IMPLEMENTATION_OPENSEARCH = "opensearch";
+  public static final String ELASTICSEARCH_IMPLEMENTATION_ELASTICSEARCH = "elasticsearch";
 
   private Constants() {
   }

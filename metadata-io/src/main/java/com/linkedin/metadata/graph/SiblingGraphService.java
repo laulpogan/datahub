@@ -7,7 +7,7 @@ import com.linkedin.common.UrnArray;
 import com.linkedin.common.urn.Urn;
 import com.linkedin.data.template.RecordTemplate;
 import com.linkedin.metadata.entity.EntityService;
-
+import com.linkedin.metadata.shared.ValidationUtils;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -17,7 +17,6 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,7 +33,17 @@ public class SiblingGraphService {
   @Nonnull
   public EntityLineageResult getLineage(@Nonnull Urn entityUrn, @Nonnull LineageDirection direction, int offset,
       int count, int maxHops) {
-    return getLineage(entityUrn, direction, offset, count, maxHops, false);
+    return ValidationUtils.validateEntityLineageResult(getLineage(
+            entityUrn,
+            direction,
+            offset,
+            count,
+            maxHops,
+            false,
+            new HashSet<>(),
+            null,
+            null),
+        _entityService);
   }
 
   /**
@@ -45,9 +54,17 @@ public class SiblingGraphService {
    */
   @Nonnull
   public EntityLineageResult getLineage(@Nonnull Urn entityUrn, @Nonnull LineageDirection direction,
-     int offset, int count, int maxHops, boolean separateSiblings) {
+      int offset, int count, int maxHops, boolean separateSiblings, @Nonnull Set<Urn> visitedUrns,
+      @Nullable Long startTimeMillis, @Nullable Long endTimeMillis) {
     if (separateSiblings) {
-      return _graphService.getLineage(entityUrn, direction, offset, count, maxHops);
+      return ValidationUtils.validateEntityLineageResult(_graphService.getLineage(
+          entityUrn,
+          direction,
+          offset,
+          count,
+          maxHops,
+          startTimeMillis,
+          endTimeMillis), _entityService);
     }
 
     if (maxHops > 1) {
@@ -55,7 +72,15 @@ public class SiblingGraphService {
           String.format("More than 1 hop is not supported for %s", this.getClass().getSimpleName()));
     }
 
-    EntityLineageResult entityLineage = _graphService.getLineage(entityUrn, direction, offset, count, maxHops);
+    EntityLineageResult entityLineage =
+        _graphService.getLineage(
+            entityUrn,
+            direction,
+            offset,
+            count,
+            maxHops,
+            startTimeMillis,
+            endTimeMillis);
 
     Siblings siblingAspectOfEntity = (Siblings) _entityService.getLatestAspect(entityUrn, SIBLINGS_ASPECT_NAME);
 
@@ -73,10 +98,25 @@ public class SiblingGraphService {
       offset = Math.max(0, offset - entityLineage.getTotal());
       count = Math.max(0, count - entityLineage.getRelationships().size());
 
+      visitedUrns.add(entityUrn);
       // iterate through each sibling and include their lineage in the bunch
       for (Urn siblingUrn : siblingUrns) {
+        if (visitedUrns.contains(siblingUrn)) {
+          continue;
+        }
+        // need to call siblingGraphService to get sibling results for this sibling entity in case there is more than one sibling
         EntityLineageResult nextEntityLineage = filterLineageResultFromSiblings(siblingUrn, allSiblingsInGroup,
-            _graphService.getLineage(siblingUrn, direction, offset, count, maxHops), entityLineage);
+            getLineage(
+                siblingUrn,
+                direction,
+                offset,
+                count,
+                maxHops,
+                false,
+                visitedUrns,
+                startTimeMillis,
+                endTimeMillis),
+            entityLineage);
 
         // Update offset and count to fetch the correct number of edges from the next sibling node
         offset = Math.max(0, offset - nextEntityLineage.getTotal());
@@ -86,7 +126,7 @@ public class SiblingGraphService {
       };
     }
 
-    return entityLineage;
+    return ValidationUtils.validateEntityLineageResult(entityLineage, _entityService);
   }
 
   // takes a lineage result and removes any nodes that are siblings of some other node already in the result
@@ -152,7 +192,7 @@ public class SiblingGraphService {
     entityLineageResult.setRelationships(new LineageRelationshipArray(uniqueFilteredRelationships));
     entityLineageResult.setTotal(entityLineageResult.getTotal() + (existingResult != null ? existingResult.getTotal() : 0));
     entityLineageResult.setCount(uniqueFilteredRelationships.size());
-    return entityLineageResult;
+    return ValidationUtils.validateEntityLineageResult(entityLineageResult, _entityService);
   }
 
 }

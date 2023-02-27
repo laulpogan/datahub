@@ -8,8 +8,8 @@ import com.linkedin.common.urn.UrnUtils;
 import com.linkedin.data.template.StringArray;
 import com.linkedin.datahub.graphql.QueryContext;
 import com.linkedin.datahub.graphql.authorization.AuthorizationUtils;
-import com.linkedin.datahub.graphql.authorization.ConjunctivePrivilegeGroup;
-import com.linkedin.datahub.graphql.authorization.DisjunctivePrivilegeGroup;
+import com.datahub.authorization.ConjunctivePrivilegeGroup;
+import com.datahub.authorization.DisjunctivePrivilegeGroup;
 import com.linkedin.datahub.graphql.exception.AuthorizationException;
 import com.linkedin.datahub.graphql.generated.DatasetUpdateInput;
 import com.linkedin.datahub.graphql.generated.Dataset;
@@ -80,7 +80,8 @@ public class DatasetType implements SearchableEntityType<Dataset, String>, Brows
         DOMAINS_ASPECT_NAME,
         SCHEMA_METADATA_ASPECT_NAME,
         DATA_PLATFORM_INSTANCE_ASPECT_NAME,
-        SIBLINGS_ASPECT_NAME
+        SIBLINGS_ASPECT_NAME,
+        EMBED_ASPECT_NAME
     );
 
     private static final Set<String> FACET_FIELDS = ImmutableSet.of("origin", "platform");
@@ -153,7 +154,8 @@ public class DatasetType implements SearchableEntityType<Dataset, String>, Brows
                                 int count,
                                 @Nonnull final QueryContext context) throws Exception {
         final Map<String, String> facetFilters = ResolverUtils.buildFacetFilters(filters, FACET_FIELDS);
-        final SearchResult searchResult = _entityClient.search(ENTITY_NAME, query, facetFilters, start, count, context.getAuthentication());
+        final SearchResult searchResult = _entityClient.search(ENTITY_NAME, query, facetFilters, start, count,
+                context.getAuthentication(), true, null);
         return UrnSearchResultsMapper.map(searchResult);
     }
 

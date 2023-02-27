@@ -5,12 +5,13 @@ from unittest import mock
 
 import pytest
 from freezegun import freeze_time
+from requests.adapters import ConnectionError
 from tableauserverclient.models import ViewItem
 
 from datahub.configuration.source_common import DEFAULT_ENV
 from datahub.ingestion.run.pipeline import Pipeline, PipelineContext
 from datahub.ingestion.source.state.checkpoint import Checkpoint
-from datahub.ingestion.source.state.tableau_state import TableauCheckpointState
+from datahub.ingestion.source.state.entity_removal_state import GenericCheckpointState
 from datahub.ingestion.source.tableau import TableauSource
 from datahub.ingestion.source.tableau_common import (
     TableauLineageOverrides,
@@ -92,6 +93,7 @@ def tableau_ingest_common(
     output_file_name,
     mock_datahub_graph,
     pipeline_config=config_source_default,
+    sign_out_side_effect=lambda: None,
 ):
     test_resources_dir = pathlib.Path(
         pytestconfig.rootpath / "tests/integration/tableau"
@@ -111,7 +113,7 @@ def tableau_ingest_common(
             mock_client.views = mock.Mock()
             mock_client.views.get.side_effect = side_effect_usage_stat
             mock_client.auth.sign_in.return_value = None
-            mock_client.auth.sign_out.return_value = None
+            mock_client.auth.sign_out.side_effect = sign_out_side_effect
             mock_sdk.return_value = mock_client
             mock_sdk._auth_token = "ABC"
 
@@ -145,7 +147,7 @@ def tableau_ingest_common(
 
 def get_current_checkpoint_from_pipeline(
     pipeline: Pipeline,
-) -> Optional[Checkpoint]:
+) -> Optional[Checkpoint[GenericCheckpointState]]:
     tableau_source = cast(TableauSource, pipeline.source)
     return tableau_source.get_current_checkpoint(
         tableau_source.stale_entity_removal_handler.job_id
@@ -153,7 +155,7 @@ def get_current_checkpoint_from_pipeline(
 
 
 @freeze_time(FROZEN_TIME)
-@pytest.mark.slow_unit
+@pytest.mark.integration
 def test_tableau_ingest(pytestconfig, tmp_path, mock_datahub_graph):
     output_file_name: str = "tableau_mces.json"
     golden_file_name: str = "tableau_mces_golden.json"
@@ -162,6 +164,8 @@ def test_tableau_ingest(pytestconfig, tmp_path, mock_datahub_graph):
         tmp_path,
         [
             read_response(pytestconfig, "workbooksConnection_all.json"),
+            read_response(pytestconfig, "sheetsConnection_all.json"),
+            read_response(pytestconfig, "dashboardsConnection_all.json"),
             read_response(pytestconfig, "embeddedDatasourcesConnection_all.json"),
             read_response(pytestconfig, "publishedDatasourcesConnection_all.json"),
             read_response(pytestconfig, "customSQLTablesConnection_all.json"),
@@ -173,7 +177,7 @@ def test_tableau_ingest(pytestconfig, tmp_path, mock_datahub_graph):
 
 
 @freeze_time(FROZEN_TIME)
-@pytest.mark.slow_unit
+@pytest.mark.integration
 def test_tableau_ingest_with_platform_instance(
     pytestconfig, tmp_path, mock_datahub_graph
 ):
@@ -213,6 +217,8 @@ def test_tableau_ingest_with_platform_instance(
         tmp_path,
         [
             read_response(pytestconfig, "workbooksConnection_all.json"),
+            read_response(pytestconfig, "sheetsConnection_all.json"),
+            read_response(pytestconfig, "dashboardsConnection_all.json"),
             read_response(pytestconfig, "embeddedDatasourcesConnection_all.json"),
             read_response(pytestconfig, "publishedDatasourcesConnection_all.json"),
             read_response(pytestconfig, "customSQLTablesConnection_all.json"),
@@ -284,6 +290,8 @@ def test_tableau_stateful(pytestconfig, tmp_path, mock_time, mock_datahub_graph)
         tmp_path,
         [
             read_response(pytestconfig, "workbooksConnection_all.json"),
+            read_response(pytestconfig, "sheetsConnection_all.json"),
+            read_response(pytestconfig, "dashboardsConnection_all.json"),
             read_response(pytestconfig, "embeddedDatasourcesConnection_all.json"),
             read_response(pytestconfig, "publishedDatasourcesConnection_all.json"),
             read_response(pytestconfig, "customSQLTablesConnection_all.json"),
@@ -320,8 +328,8 @@ def test_tableau_stateful(pytestconfig, tmp_path, mock_time, mock_datahub_graph)
 
     # Perform all assertions on the states. The deleted table should not be
     # part of the second state
-    state1 = cast(TableauCheckpointState, checkpoint1.state)
-    state2 = cast(TableauCheckpointState, checkpoint2.state)
+    state1 = checkpoint1.state
+    state2 = checkpoint2.state
 
     difference_dataset_urns = list(
         state1.get_urns_not_in(type="dataset", other_checkpoint_state=state2)
@@ -408,3 +416,26 @@ def test_tableau_no_verify():
     report = source.get_report().as_string()
     assert "SSL" not in report
     assert "Unable to login" in report
+
+
+@freeze_time(FROZEN_TIME)
+@pytest.mark.slow_unit
+def test_tableau_signout_timeout(pytestconfig, tmp_path, mock_datahub_graph):
+    output_file_name: str = "tableau_mces.json"
+    golden_file_name: str = "tableau_mces_golden.json"
+    tableau_ingest_common(
+        pytestconfig,
+        tmp_path,
+        [
+            read_response(pytestconfig, "workbooksConnection_all.json"),
+            read_response(pytestconfig, "sheetsConnection_all.json"),
+            read_response(pytestconfig, "dashboardsConnection_all.json"),
+            read_response(pytestconfig, "embeddedDatasourcesConnection_all.json"),
+            read_response(pytestconfig, "publishedDatasourcesConnection_all.json"),
+            read_response(pytestconfig, "customSQLTablesConnection_all.json"),
+        ],
+        golden_file_name,
+        output_file_name,
+        mock_datahub_graph,
+        sign_out_side_effect=ConnectionError,
+    )

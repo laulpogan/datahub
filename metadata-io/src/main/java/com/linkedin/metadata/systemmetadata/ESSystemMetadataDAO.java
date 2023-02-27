@@ -2,6 +2,7 @@ package com.linkedin.metadata.systemmetadata;
 
 import com.google.common.collect.ImmutableList;
 import com.linkedin.metadata.search.elasticsearch.update.ESBulkProcessor;
+import com.linkedin.metadata.search.utils.ESUtils;
 import com.linkedin.metadata.utils.elasticsearch.IndexConvention;
 import java.io.IOException;
 import java.util.Collections;
@@ -9,11 +10,11 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.delete.DeleteResponse;
-import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.search.SearchRequest;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.action.update.UpdateRequest;
@@ -49,13 +50,12 @@ public class ESSystemMetadataDAO {
    * @param docId the ID of the document
    */
   public void upsertDocument(@Nonnull String docId, @Nonnull String document) {
-    final IndexRequest indexRequest =
-        new IndexRequest(indexConvention.getIndexName(INDEX_NAME)).id(docId).source(document, XContentType.JSON);
-    final UpdateRequest updateRequest =
-        new UpdateRequest(indexConvention.getIndexName(INDEX_NAME), docId).doc(document, XContentType.JSON)
-                .detectNoop(false)
-                .retryOnConflict(numRetries)
-                .upsert(indexRequest);
+    final UpdateRequest updateRequest = new UpdateRequest(
+            indexConvention.getIndexName(INDEX_NAME), docId)
+            .detectNoop(false)
+            .docAsUpsert(true)
+            .doc(document, XContentType.JSON)
+            .retryOnConflict(numRetries);
     bulkProcessor.add(updateRequest);
   }
 
@@ -121,7 +121,42 @@ public class ESSystemMetadataDAO {
       final SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
       return searchResponse;
     } catch (IOException e) {
-      e.printStackTrace();
+      log.error("Error while searching by params.", e);
+    }
+    return null;
+  }
+
+  // TODO: Scroll impl for searches bound by 10k limit
+  public SearchResponse findByParams(Map<String, String> searchParams, boolean includeSoftDeleted, @Nullable Object[] sort,
+      @Nullable String pitId, @Nonnull String keepAlive, int size) {
+    SearchRequest searchRequest = new SearchRequest();
+
+    SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+
+    BoolQueryBuilder finalQuery = QueryBuilders.boolQuery();
+
+    for (String key : searchParams.keySet()) {
+      finalQuery.must(QueryBuilders.termQuery(key, searchParams.get(key)));
+    }
+
+    if (!includeSoftDeleted) {
+      finalQuery.mustNot(QueryBuilders.termQuery("removed", "true"));
+    }
+
+    searchSourceBuilder.query(finalQuery);
+
+    ESUtils.setSearchAfter(searchSourceBuilder, sort, pitId, keepAlive);
+    searchSourceBuilder.size(size);
+
+    searchRequest.source(searchSourceBuilder);
+
+    searchRequest.indices(indexConvention.getIndexName(INDEX_NAME));
+
+    try {
+      final SearchResponse searchResponse = client.search(searchRequest, RequestOptions.DEFAULT);
+      return searchResponse;
+    } catch (IOException e) {
+      log.error("Error while searching by params.", e);
     }
     return null;
   }
@@ -151,6 +186,7 @@ public class ESSystemMetadataDAO {
 
     BucketSortPipelineAggregationBuilder bucketSort =
         PipelineAggregatorBuilders.bucketSort("mostRecent", ImmutableList.of(fieldSortBuilder));
+    // TODO: Evaluate this usage, does this also hit pagination limits?
     bucketSort.size(pageSize);
     bucketSort.from(pageOffset);
 

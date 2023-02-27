@@ -13,7 +13,7 @@ from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.sql import sqltypes
 from sqlalchemy.types import TypeEngine
 from trino.exceptions import TrinoQueryError
-from trino.sqlalchemy import datatype, error
+from trino.sqlalchemy import datatype
 from trino.sqlalchemy.dialect import TrinoDialect
 
 from datahub.ingestion.api.common import PipelineContext
@@ -27,10 +27,10 @@ from datahub.ingestion.api.decorators import (
 )
 from datahub.ingestion.extractor import schema_util
 from datahub.ingestion.source.sql.sql_common import (
-    BasicSQLAlchemyConfig,
     SQLAlchemySource,
     register_custom_type,
 )
+from datahub.ingestion.source.sql.sql_config import BasicSQLAlchemyConfig
 from datahub.metadata.com.linkedin.pegasus2avro.schema import (
     MapTypeClass,
     NumberTypeClass,
@@ -82,13 +82,8 @@ def get_table_comment(self, connection, table_name: str, schema: str = None, **k
 
         return {"text": properties.get("comment", None), "properties": properties}
     # Fallback to default trino-sqlalchemy behaviour if `$properties` table doesn't exist
-    except TrinoQueryError as e:
-        if e.error_name in (
-            error.TABLE_NOT_FOUND,
-            error.COLUMN_NOT_FOUND,
-            error.NOT_FOUND,
-        ):
-            return self.get_table_comment_default(connection, table_name, schema)
+    except TrinoQueryError:
+        return self.get_table_comment_default(connection, table_name, schema)
     # Exception raised when using Starburst Delta Connector that falls back to a Hive Catalog
     except exc.ProgrammingError as e:
         if isinstance(e.orig, TrinoQueryError):
@@ -138,7 +133,7 @@ TrinoDialect._get_columns = _get_columns
 
 class TrinoConfig(BasicSQLAlchemyConfig):
     # defaults
-    scheme = Field(default="trino", description="", hidden_from_schema=True)
+    scheme = Field(default="trino", description="", hidden_from_docs=True)
 
     def get_identifier(self: BasicSQLAlchemyConfig, schema: str, table: str) -> str:
         regular = f"{schema}.{table}"
@@ -197,7 +192,6 @@ class TrinoSource(SQLAlchemySource):
         pk_constraints: Optional[dict] = None,
         tags: Optional[List[str]] = None,
     ) -> List[SchemaField]:
-
         fields = super().get_schema_fields_for_column(
             dataset_name, column, pk_constraints
         )

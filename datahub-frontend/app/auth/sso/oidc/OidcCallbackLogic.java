@@ -1,5 +1,6 @@
 package auth.sso.oidc;
 
+import auth.CookieConfigs;
 import client.AuthServiceClient;
 import com.datahub.authentication.Authentication;
 import com.linkedin.common.AuditStamp;
@@ -57,10 +58,10 @@ import org.pac4j.play.PlayWebContext;
 import play.mvc.Result;
 import auth.sso.SsoManager;
 
-import static auth.AuthUtils.ACCESS_TOKEN;
-import static auth.AuthUtils.ACTOR;
 import static auth.AuthUtils.createActorCookie;
-import static com.linkedin.metadata.Constants.*;
+import static auth.AuthUtils.createSessionMap;
+import static com.linkedin.metadata.Constants.CORP_USER_ENTITY_NAME;
+import static com.linkedin.metadata.Constants.GROUP_MEMBERSHIP_ASPECT_NAME;
 import static play.mvc.Results.internalServerError;
 
 
@@ -80,13 +81,15 @@ public class OidcCallbackLogic extends DefaultCallbackLogic<Result, PlayWebConte
   private final EntityClient _entityClient;
   private final Authentication _systemAuthentication;
   private final AuthServiceClient _authClient;
+  private final CookieConfigs _cookieConfigs;
 
   public OidcCallbackLogic(final SsoManager ssoManager, final Authentication systemAuthentication,
-      final EntityClient entityClient, final AuthServiceClient authClient) {
+      final EntityClient entityClient, final AuthServiceClient authClient, final CookieConfigs cookieConfigs) {
     _ssoManager = ssoManager;
     _systemAuthentication = systemAuthentication;
     _entityClient = entityClient;
     _authClient = authClient;
+    _cookieConfigs = cookieConfigs;
   }
 
   @Override
@@ -152,9 +155,16 @@ public class OidcCallbackLogic extends DefaultCallbackLogic<Result, PlayWebConte
 
       // Successfully logged in - Generate GMS login token
       final String accessToken = _authClient.generateSessionTokenForUser(corpUserUrn.getId());
-      context.getNativeSession().adding(ACCESS_TOKEN, accessToken);
-      context.getNativeSession().adding(ACTOR, corpUserUrn.toString());
-      return result.withCookies(createActorCookie(corpUserUrn.toString(), oidcConfigs.getSessionTtlInHours()));
+      return result
+              .withSession(createSessionMap(corpUserUrn.toString(), accessToken))
+              .withCookies(
+                  createActorCookie(
+                      corpUserUrn.toString(),
+                      _cookieConfigs.getTtlInHours(),
+                      _cookieConfigs.getAuthCookieSameSite(),
+                      _cookieConfigs.getAuthCookieSecure()
+                  )
+              );
     }
     return internalServerError(
         "Failed to authenticate current user. Cannot find valid identity provider profile in session.");

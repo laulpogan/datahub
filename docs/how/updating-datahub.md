@@ -5,11 +5,58 @@ This file documents any backwards-incompatible changes in DataHub and assists pe
 ## Next
 
 ### Breaking Changes
+- #7016 Add `add_database_name_to_urn` flag to Oracle source which ensure that Dataset urns have the DB name as a prefix to prevent collision (.e.g. {database}.{schema}.{table}). ONLY breaking if you set this flag to true, otherwise behavior remains the same. 
+
+### Potential Downtime
+
+### Deprecations
+
+### Other notable Changes
+
+## 0.10.0
+
+### Breaking Changes
+
+- #7103 This should only impact users who have configured explicit non-default names for DataHub's Kafka topics. The environment variables used to configure Kafka topics for DataHub used in the `kafka-setup` docker image have been updated to be in-line with other DataHub components, for more info see our docs on [Configuring Kafka in DataHub
+](https://datahubproject.io/docs/how/kafka-config). They have been suffixed with `_TOPIC` where as now the correct suffix is `_TOPIC_NAME`. This change should not affect any user who is using default Kafka names.
+
+### Potential Downtime
+
+- #6894 Search improvements requires reindexing indices. A `system-update` job will run which will set indices to read-only and create a backup/clone of each index. During the reindexing new components will be prevented from start-up until the reindex completes. The logs of this job will indicate a % complete per index. Depending on index sizes and infrastructure this process can take 5 minutes to hours however as a rough estimate 1 hour for every 2.3 million entities.
+
+#### Helm Notes
+
+Helm without `--atomic`: The default timeout for an upgrade command is 5 minutes. If the reindex takes longer (depending on data size) it will continue to run in the background even though helm will report a failure. Allow this job to finish and then re-run the helm upgrade command.
+
+Helm with `--atomic`: In general, it is recommended to not use the `--atomic` setting for this particular upgrade since the system update job will be terminated before completion. If `--atomic` is preferred, then increase the timeout using the `--timeout` flag to account for the reindexing time (see note above for estimating this value).
+
+### Deprecations
+
+## 0.9.6
+
+### Breaking Changes
+
+- #6742 The metadata file sink's output format no longer contains nested JSON strings for MCP aspects, but instead unpacks the stringified JSON into a real JSON object. The previous sink behavior can be recovered using the `legacy_nested_json_string` option. The file source is backwards compatible and supports both formats.
+- #6901 The `env` and `database_alias` fields have been marked deprecated across all sources. We recommend using `platform_instance` where possible instead.
+
+### Potential Downtime
+
+### Deprecations
+#6851 - Sources bigquery-legacy and bigquery-usage-legacy have been removed.
+
+### Other notable Changes
+- If anyone faces issues with login please clear your cookies. Some security updates are part of this release. That may cause login issues until cookies are cleared.
+
+## 0.9.4 / 0.9.5
+
+### Breaking Changes
+
 - #6243 apache-ranger authorizer is no longer the core part of DataHub GMS, and it is shifted as plugin. Please refer updated documentation [Configuring Authorization with Apache Ranger](./configuring-authorization-with-apache-ranger.md#configuring-your-datahub-deployment) for configuring `apache-ranger-plugin` in DataHub GMS.
 - #6243 apache-ranger authorizer as plugin is not supported in DataHub Kubernetes deployment.
-- #6243 Authentication and Authorization plugins configuration are removed from [application.yml](../../metadata-service/factories/src/main/resources/application.yml). Refer documentation [Migration Of Plugins From application.yml](../plugins.md#migration-of-plugins-from-applicationyml) for migrating any existing custom plugins. 
+- #6243 Authentication and Authorization plugins configuration are removed from [application.yml](../../metadata-service/factories/src/main/resources/application.yml). Refer documentation [Migration Of Plugins From application.yml](../plugins.md#migration-of-plugins-from-applicationyml) for migrating any existing custom plugins.
 - `datahub check graph-consistency` command has been removed. It was a beta API that we had considered but decided there are better solutions for this. So removing this.
 - `graphql_url` option of `powerbi-report-server` source deprecated as the options is not used.
+- #6789 BigQuery ingestion: If `enable_legacy_sharded_table_support` is set to False, sharded table names will be suffixed with \_yyyymmdd to make sure they don't clash with non-sharded tables. This means if stateful ingestion is enabled then old sharded tables will be recreated with a new id and attached tags/glossary terms/etc will need to be added again. _This behavior is not enabled by default yet, but will be enabled by default in a future release._
 
 ### Potential Downtime
 
@@ -24,7 +71,7 @@ This file documents any backwards-incompatible changes in DataHub and assists pe
 
 ### Breaking Changes
 
-- The beta `datahub check graph-consistency` command has been removed. 
+- The beta `datahub check graph-consistency` command has been removed.
 
 ### Potential Downtime
 
@@ -55,7 +102,8 @@ This file documents any backwards-incompatible changes in DataHub and assists pe
 ## 0.9.1
 
 ### Breaking Changes
-- we have promoted `bigqery-beta` to `bigquery`. If you are using `bigquery-beta` then change your recipes to use the type `bigquery`
+
+- We have promoted `bigquery-beta` to `bigquery`. If you are using `bigquery-beta` then change your recipes to use the type `bigquery`.
 
 ### Potential Downtime
 
@@ -123,6 +171,7 @@ This file documents any backwards-incompatible changes in DataHub and assists pe
 - #5478 DataHub CLI `delete` command when used with `--hard` option will delete soft-deleted entities which match the other filters given.
 - #5471 Looker now populates `userEmail` in dashboard user usage stats. This version of looker connnector will not work with older version of **datahub-gms** if you have `extract_usage_history` looker config enabled.
 - #5529 - `ANALYTICS_ENABLED` environment variable in **datahub-gms** is now deprecated. Use `DATAHUB_ANALYTICS_ENABLED` instead.
+- #5485 `--include-removed` option was removed from delete CLI
 
 ### Potential Downtime
 

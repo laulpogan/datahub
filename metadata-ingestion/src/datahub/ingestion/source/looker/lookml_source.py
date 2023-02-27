@@ -19,8 +19,9 @@ from pydantic.fields import Field
 import datahub.emitter.mce_builder as builder
 from datahub.configuration import ConfigModel
 from datahub.configuration.common import AllowDenyPattern, ConfigurationError
-from datahub.configuration.github import GitHubInfo
+from datahub.configuration.git import GitInfo
 from datahub.configuration.source_common import EnvBasedSourceConfigBase
+from datahub.configuration.validate_field_rename import pydantic_renamed_field
 from datahub.emitter.mce_builder import make_schema_field_urn
 from datahub.emitter.mcp import MetadataChangeProposalWrapper
 from datahub.ingestion.api.common import PipelineContext
@@ -47,7 +48,7 @@ from datahub.ingestion.source.looker.looker_lib_wrapper import (
     LookerAPIConfig,
     TransportOptionsConfig,
 )
-from datahub.ingestion.source.state.lookml_state import LookMLCheckpointState
+from datahub.ingestion.source.state.entity_removal_state import GenericCheckpointState
 from datahub.ingestion.source.state.stale_entity_removal_handler import (
     StaleEntityRemovalHandler,
     StaleEntityRemovalSourceReport,
@@ -91,6 +92,10 @@ lkml.simple.PLURAL_KEYS = (
     "local_dependency",
     "remote_dependency",
 )
+
+_EXPLORE_FILE_EXTENSION = ".explore.lkml"
+_VIEW_FILE_EXTENSION = ".view.lkml"
+_MODEL_FILE_EXTENSION = ".model.lkml"
 
 
 def _get_bigquery_definition(
@@ -169,15 +174,16 @@ class LookerConnectionDefinition(ConfigModel):
 
 
 class LookMLSourceConfig(LookerCommonConfig, StatefulIngestionConfigBase):
+    git_info: Optional[GitInfo] = Field(
+        None,
+        description="Reference to your git location. If present, supplies handy links to your lookml on the dataset entity page.",
+    )
+    _github_info_deprecated = pydantic_renamed_field("github_info", "git_info")
     base_folder: Optional[pydantic.DirectoryPath] = Field(
         None,
         description="Required if not providing github configuration and deploy keys. A pointer to a local directory (accessible to the ingestion system) where the root of the LookML repo has been checked out (typically via a git clone). This is typically the root folder where the `*.model.lkml` and `*.view.lkml` files are stored. e.g. If you have checked out your LookML repo under `/Users/jdoe/workspace/my-lookml-repo`, then set `base_folder` to `/Users/jdoe/workspace/my-lookml-repo`.",
     )
-    github_info: Optional[GitHubInfo] = Field(
-        None,
-        description="Reference to your github location. If present, supplies handy links to your lookml on the dataset entity page.",
-    )
-    project_dependencies: Dict[str, Union[pydantic.DirectoryPath, GitHubInfo]] = Field(
+    project_dependencies: Dict[str, Union[pydantic.DirectoryPath, GitInfo]] = Field(
         {},
         description="A map of project_name to local directory (accessible to the ingestion system) or Git credentials. "
         "Every local_dependencies or private remote_dependency listed in the main project's manifest.lkml file should have a corresponding entry here. "
@@ -221,7 +227,7 @@ class LookMLSourceConfig(LookerCommonConfig, StatefulIngestionConfigBase):
         description="When enabled, field descriptions will include the sql logic for computed fields if descriptions are missing",
     )
     process_isolation_for_sql_parsing: bool = Field(
-        True,
+        False,
         description="When enabled, sql parsing will be executed in a separate process to prevent memory leaks.",
     )
     stateful_ingestion: Optional[StatefulStaleMetadataRemovalConfig] = Field(
@@ -265,7 +271,7 @@ class LookMLSourceConfig(LookerCommonConfig, StatefulIngestionConfigBase):
         if not values.get("connection_to_platform_map", {}) and not values.get(
             "api", {}
         ):
-            raise ConfigurationError(
+            raise ValueError(
                 "Neither api not connection_to_platform_map config was found. LookML source requires either api credentials for Looker or a map of connection names to platform identifiers to work correctly"
             )
         return values
@@ -274,7 +280,7 @@ class LookMLSourceConfig(LookerCommonConfig, StatefulIngestionConfigBase):
     def check_either_project_name_or_api_provided(cls, values):
         """Validate that we must either have a project name or an api credential to fetch project names"""
         if not values.get("project_name") and not values.get("api"):
-            raise ConfigurationError(
+            raise ValueError(
                 "Neither project_name not an API credential was found. LookML source requires either api credentials for Looker or a project_name to accurately name views and models."
             )
         return values
@@ -284,9 +290,9 @@ class LookMLSourceConfig(LookerCommonConfig, StatefulIngestionConfigBase):
         cls, v: Optional[pydantic.DirectoryPath], values: Dict[str, Any]
     ) -> Optional[pydantic.DirectoryPath]:
         if v is None:
-            github_info: Optional[GitHubInfo] = values.get("github_info", None)
-            if github_info and github_info.deploy_key:
-                # We have github_info populated correctly, base folder is not needed
+            git_info: Optional[GitInfo] = values.get("git_info", None)
+            if git_info and git_info.deploy_key:
+                # We have git_info populated correctly, base folder is not needed
                 pass
             else:
                 raise ValueError(
@@ -302,6 +308,7 @@ class LookMLSourceReport(StaleEntityRemovalSourceReport):
     models_dropped: List[str] = dataclass_field(default_factory=LossyList)
     views_discovered: int = 0
     views_dropped: List[str] = dataclass_field(default_factory=LossyList)
+    views_dropped_unreachable: List[str] = dataclass_field(default_factory=LossyList)
     query_parse_attempts: int = 0
     query_parse_failures: int = 0
     query_parse_failure_views: List[str] = dataclass_field(default_factory=LossyList)
@@ -318,6 +325,9 @@ class LookMLSourceReport(StaleEntityRemovalSourceReport):
 
     def report_views_dropped(self, view: str) -> None:
         self.views_dropped.append(view)
+
+    def report_unreachable_view_dropped(self, view: str) -> None:
+        self.views_dropped_unreachable.append(view)
 
     def compute_stats(self) -> None:
         if self._looker_api:
@@ -356,6 +366,24 @@ class LookerModel:
         )
         logger.debug(f"{path} has resolved_includes: {resolved_includes}")
         explores = looker_model_dict.get("explores", [])
+
+        explore_files = [
+            x.include
+            for x in resolved_includes
+            if x.include.endswith(_EXPLORE_FILE_EXTENSION)
+        ]
+        for included_file in explore_files:
+            try:
+                with open(included_file, "r") as file:
+                    parsed = lkml.load(file)
+                    included_explores = parsed.get("explores", [])
+                    explores.extend(included_explores)
+            except Exception as e:
+                reporter.report_warning(
+                    path, f"Failed to load {included_file} due to {e}"
+                )
+                # continue in this case, as it might be better to load and resolve whatever we can
+                pass
 
         return LookerModel(
             connection=connection,
@@ -414,11 +442,17 @@ class LookerModel:
             # "**" matches an arbitrary number of directories in LookML
             # we also resolve these paths to absolute paths so we can de-dup effectively later on
             included_files = [
-                str(pathlib.Path(p).resolve())
-                for p in sorted(
-                    glob.glob(glob_expr, recursive=True)
-                    + glob.glob(f"{glob_expr}.lkml", recursive=True)
-                )
+                str(p.resolve())
+                for p in [
+                    pathlib.Path(p)
+                    for p in sorted(
+                        glob.glob(glob_expr, recursive=True)
+                        + glob.glob(f"{glob_expr}.lkml", recursive=True)
+                    )
+                ]
+                # We don't want to match directories. The '**' glob can be used to
+                # recurse into directories.
+                if p.is_file()
             ]
             logger.debug(
                 f"traversal_path={traversal_path}, included_files = {included_files}, seen_so_far: {seen_so_far}"
@@ -561,10 +595,14 @@ class LookerViewFileLoader:
     ) -> Optional[LookerViewFile]:
         # always fully resolve paths to simplify de-dup
         path = str(pathlib.Path(path).resolve())
-        if not path.endswith(".view.lkml"):
+        allowed_extensions = [_VIEW_FILE_EXTENSION, _EXPLORE_FILE_EXTENSION]
+        matched_any_extension = [
+            match for match in [path.endswith(x) for x in allowed_extensions] if match
+        ]
+        if not matched_any_extension:
             # not a view file
             logger.debug(
-                f"Skipping file {path} because it doesn't appear to be a view file"
+                f"Skipping file {path} because it doesn't appear to be a view file. Matched extensions {allowed_extensions}"
             )
             return None
 
@@ -765,7 +803,7 @@ class LookerView:
         sql_parser_path: str = "datahub.utilities.sql_parser.DefaultSQLParser",
         extract_col_level_lineage: bool = False,
         populate_sql_logic_in_descriptions: bool = False,
-        process_isolation_for_sql_parsing: bool = True,
+        process_isolation_for_sql_parsing: bool = False,
     ) -> Optional["LookerView"]:
         view_name = looker_view["name"]
         logger.debug(f"Handling view {view_name} in model {model_name}")
@@ -905,7 +943,9 @@ class LookerView:
             sql_query = derived_table["sql"]
             reporter.query_parse_attempts += 1
 
-            # Skip queries that contain liquid variables. We currently don't parse them correctly
+            # Skip queries that contain liquid variables. We currently don't parse them correctly.
+            # Docs: https://cloud.google.com/looker/docs/liquid-variable-reference.
+            # TODO: also support ${EXTENDS} and ${TABLE}
             if "{%" in sql_query:
                 try:
                     # test if parsing works
@@ -1070,7 +1110,7 @@ class LookMLSource(StatefulIngestionSourceBase):
 
     # This is populated during the git clone step.
     base_projects_folder: Dict[str, pathlib.Path] = {}
-    remote_projects_github_info: Dict[str, GitHubInfo] = {}
+    remote_projects_git_info: Dict[str, GitInfo] = {}
 
     def __init__(self, config: LookMLSourceConfig, ctx: PipelineContext):
         super().__init__(config, ctx)
@@ -1089,7 +1129,7 @@ class LookMLSource(StatefulIngestionSourceBase):
         self.stale_entity_removal_handler = StaleEntityRemovalHandler(
             source=self,
             config=self.source_config,
-            state_type_class=LookMLCheckpointState,
+            state_type_class=GenericCheckpointState,
             pipeline_name=self.ctx.pipeline_name,
             run_id=self.ctx.run_id,
         )
@@ -1224,7 +1264,6 @@ class LookMLSource(StatefulIngestionSourceBase):
     ) -> Optional[UpstreamLineage]:
         upstreams = []
         for sql_table_name in looker_view.sql_table_names:
-
             sql_table_name = sql_table_name.replace('"', "").replace("`", "")
             upstream_dataset_urn: str = self._construct_datalineage_urn(
                 sql_table_name, looker_view
@@ -1295,17 +1334,17 @@ class LookMLSource(StatefulIngestionSourceBase):
             name=looker_view.id.view_name, customProperties=custom_properties
         )
 
-        maybe_github_info = self.source_config.project_dependencies.get(
+        maybe_git_info = self.source_config.project_dependencies.get(
             looker_view.id.project_name,
-            self.remote_projects_github_info.get(looker_view.id.project_name),
+            self.remote_projects_git_info.get(looker_view.id.project_name),
         )
-        if isinstance(maybe_github_info, GitHubInfo):
-            github_info: Optional[GitHubInfo] = maybe_github_info
+        if isinstance(maybe_git_info, GitInfo):
+            git_info: Optional[GitInfo] = maybe_git_info
         else:
-            github_info = self.source_config.github_info
-        if github_info is not None and file_path:
+            git_info = self.source_config.git_info
+        if git_info is not None and file_path:
             # It should be that looker_view.id.project_name is the base project.
-            github_file_url = github_info.get_url_for_file_path(file_path)
+            github_file_url = git_info.get_url_for_file_path(file_path)
             dataset_props.externalUrl = github_file_url
 
         return dataset_props
@@ -1413,16 +1452,17 @@ class LookMLSource(StatefulIngestionSourceBase):
         with tempfile.TemporaryDirectory("lookml_tmp") as tmp_dir:
             # Clone the base_folder if necessary.
             if not self.source_config.base_folder:
-                assert self.source_config.github_info
+                assert self.source_config.git_info
                 # we don't have a base_folder, so we need to clone the repo and process it locally
                 start_time = datetime.now()
                 git_clone = GitClone(tmp_dir)
                 # github info deploy key is always populated
-                assert self.source_config.github_info.deploy_key
-                assert self.source_config.github_info.repo_ssh_locator
+                assert self.source_config.git_info.deploy_key
+                assert self.source_config.git_info.repo_ssh_locator
                 checkout_dir = git_clone.clone(
-                    ssh_key=self.source_config.github_info.deploy_key,
-                    repo_url=self.source_config.github_info.repo_ssh_locator,
+                    ssh_key=self.source_config.git_info.deploy_key,
+                    repo_url=self.source_config.git_info.repo_ssh_locator,
+                    branch=self.source_config.git_info.branch_for_clone,
                 )
                 self.reporter.git_clone_latency = datetime.now() - start_time
                 self.source_config.base_folder = checkout_dir.resolve()
@@ -1435,7 +1475,7 @@ class LookMLSource(StatefulIngestionSourceBase):
             # We clone everything that we're pointed at.
             for project, p_ref in self.source_config.project_dependencies.items():
                 # If we were given GitHub info, we need to clone the project.
-                if isinstance(p_ref, GitHubInfo):
+                if isinstance(p_ref, GitInfo):
                     assert p_ref.repo_ssh_locator
 
                     p_cloner = GitClone(f"{tmp_dir}/_included_/{project}")
@@ -1446,12 +1486,13 @@ class LookMLSource(StatefulIngestionSourceBase):
                                 # to the main project deploy key.
                                 p_ref.deploy_key
                                 or (
-                                    self.source_config.github_info.deploy_key
-                                    if self.source_config.github_info
+                                    self.source_config.git_info.deploy_key
+                                    if self.source_config.git_info
                                     else None
                                 )
                             ),
                             repo_url=p_ref.repo_ssh_locator,
+                            branch=p_ref.branch_for_clone,
                         )
 
                         p_ref = p_checkout_dir.resolve()
@@ -1499,8 +1540,8 @@ class LookMLSource(StatefulIngestionSourceBase):
 
                     p_checkout_dir = p_cloner.clone(
                         ssh_key=(
-                            self.source_config.github_info.deploy_key
-                            if self.source_config.github_info
+                            self.source_config.git_info.deploy_key
+                            if self.source_config.git_info
                             else None
                         ),
                         repo_url=remote_project.url,
@@ -1511,17 +1552,15 @@ class LookMLSource(StatefulIngestionSourceBase):
                     ] = p_checkout_dir.resolve()
                     repo = p_cloner.get_last_repo_cloned()
                     assert repo
-                    remote_github_info = GitHubInfo(
-                        base_url=remote_project.url,
+                    remote_git_info = GitInfo(
+                        url_template=remote_project.url,
                         repo="dummy/dummy",  # set to dummy values to bypass validation
                         branch=repo.active_branch.name,
                     )
-                    remote_github_info.repo = (
+                    remote_git_info.repo = (
                         ""  # set to empty because url already contains the full path
                     )
-                    self.remote_projects_github_info[
-                        remote_project.name
-                    ] = remote_github_info
+                    self.remote_projects_git_info[remote_project.name] = remote_git_info
 
                 except Exception as e:
                     logger.warning(
@@ -1553,7 +1592,9 @@ class LookMLSource(StatefulIngestionSourceBase):
 
         # The ** means "this directory and all subdirectories", and hence should
         # include all the files we want.
-        model_files = sorted(self.source_config.base_folder.glob("**/*.model.lkml"))
+        model_files = sorted(
+            self.source_config.base_folder.glob(f"**/*{_MODEL_FILE_EXTENSION}")
+        )
         model_suffix_len = len(".model")
 
         for file_path in model_files:
@@ -1587,6 +1628,7 @@ class LookMLSource(StatefulIngestionSourceBase):
 
             explore_reachable_views: Set[ProjectInclude] = set()
             if self.source_config.emit_reachable_views_only:
+                model_explores_map = {d["name"]: d for d in model.explores}
                 for explore_dict in model.explores:
                     try:
                         explore: LookerExplore = LookerExplore.from_dict(
@@ -1595,6 +1637,7 @@ class LookMLSource(StatefulIngestionSourceBase):
                             model.resolved_includes,
                             viewfile_loader,
                             self.reporter,
+                            model_explores_map,
                         )
                         if explore.upstream_views:
                             for view_name in explore.upstream_views:
@@ -1635,6 +1678,9 @@ class LookMLSource(StatefulIngestionSourceBase):
                         ):
                             logger.debug(
                                 f"view {raw_view['name']} is not reachable from an explore, skipping.."
+                            )
+                            self.reporter.report_unreachable_view_dropped(
+                                raw_view["name"]
                             )
                             continue
 
@@ -1730,7 +1776,7 @@ class LookMLSource(StatefulIngestionSourceBase):
     def get_report(self):
         return self.reporter
 
-    def get_platform_instance_id(self) -> str:
+    def get_platform_instance_id(self) -> Optional[str]:
         return self.source_config.platform_instance or self.platform
 
     def close(self):

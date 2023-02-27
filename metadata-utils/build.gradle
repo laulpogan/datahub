@@ -8,6 +8,7 @@ dependencies {
   compile externalDependency.elasticSearchRest
   compile externalDependency.httpClient
   compile externalDependency.neo4jJavaDriver
+  compile externalDependency.json
 
   compile spec.product.pegasus.restliClient
   compile spec.product.pegasus.restliCommon
@@ -33,5 +34,6 @@ dependencies {
         because("previous versions are vulnerable to CVE-2021-45105")
     }
   }
+  implementation externalDependency.logbackClassic
 
 }

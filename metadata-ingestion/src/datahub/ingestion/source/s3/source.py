@@ -160,8 +160,6 @@ profiling_flags_to_report = [
     "include_field_sample_values",
 ]
 
-S3_PREFIXES = ("s3://", "s3n://", "s3a://")
-
 
 # LOCAL_BROWSE_PATH_TRANSFORMER_CONFIG = AddDatasetBrowsePathConfig(
 #     path_templates=["/ENV/PLATFORMDATASET_PARTS"], replace_existing=True
@@ -250,7 +248,6 @@ class S3Source(Source):
             self.init_spark()
 
     def init_spark(self):
-
         conf = SparkConf()
 
         conf.set(
@@ -265,7 +262,6 @@ class S3Source(Source):
         )
 
         if self.source_config.aws_config is not None:
-
             credentials = self.source_config.aws_config.get_credentials()
 
             aws_access_key_id = credentials.get("aws_access_key_id")
@@ -279,7 +275,6 @@ class S3Source(Source):
             ]
 
             if any(x is not None for x in aws_provided_credentials):
-
                 # see https://hadoop.apache.org/docs/r3.0.3/hadoop-aws/tools/hadoop-aws/index.html#Changing_Authentication_Providers
                 if all(x is not None for x in aws_provided_credentials):
                     conf.set(
@@ -324,7 +319,6 @@ class S3Source(Source):
         return cls(config, ctx)
 
     def read_file_spark(self, file: str, ext: str) -> Optional[DataFrame]:
-
         logger.debug(f"Opening file {file} for profiling in spark")
         file = file.replace("s3://", "s3a://")
 
@@ -387,7 +381,6 @@ class S3Source(Source):
                 table_data.full_path, "rb", transport_params={"client": s3_client}
             )
         else:
-
             file = open(table_data.full_path, "rb")
 
         fields = []
@@ -518,7 +511,6 @@ class S3Source(Source):
     def ingest_table(
         self, table_data: TableData, path_spec: PathSpec
     ) -> Iterable[MetadataWorkUnit]:
-
         logger.info(f"Extracting table schema from file: {table_data.full_path}")
         browse_path: str = (
             strip_s3_prefix(table_data.table_path)
@@ -619,7 +611,6 @@ class S3Source(Source):
     def extract_table_data(
         self, path_spec: PathSpec, path: str, timestamp: datetime, size: int
     ) -> TableData:
-
         logger.debug(f"Getting table data for path: {path}")
         table_name, table_path = path_spec.extract_table_name_and_path(path)
         table_data = None
@@ -761,6 +752,9 @@ class S3Source(Source):
                             table_dict[table_data.table_path].timestamp
                             < table_data.timestamp
                         ):
+                            table_dict[
+                                table_data.table_path
+                            ].full_path = table_data.full_path
                             table_dict[
                                 table_data.table_path
                             ].timestamp = table_data.timestamp

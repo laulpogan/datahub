@@ -9,8 +9,8 @@ from deprecated import deprecated
 from requests.adapters import Response
 from requests.models import HTTPError
 
-from datahub.cli.cli_utils import get_boolean_env_variable
-from datahub.configuration.common import ConfigModel, OperationalError
+from datahub.cli.cli_utils import get_boolean_env_variable, get_url_and_token
+from datahub.configuration.common import ConfigModel, GraphError, OperationalError
 from datahub.emitter.mce_builder import Aspect
 from datahub.emitter.rest_emitter import DatahubRestEmitter
 from datahub.emitter.serialization_helper import post_json_transform
@@ -152,12 +152,12 @@ class DataHubGraph(DatahubRestEmitter):
 
         # Deserialize the aspect json into the aspect type.
         aspect_json = response_json.get("aspect", {}).get(aspect_type_name)
-        if aspect_json:
+        if aspect_json is not None:
             # need to apply a transform to the response to match rest.li and avro serialization
             post_json_obj = post_json_transform(aspect_json)
             return aspect_type.from_obj(post_json_obj)
         else:
-            raise OperationalError(
+            raise GraphError(
                 f"Failed to find {aspect_type_name} in response {response_json}"
             )
 
@@ -274,7 +274,6 @@ class DataHubGraph(DatahubRestEmitter):
     def get_latest_timeseries_value(
         self,
         entity_urn: str,
-        aspect_name: str,
         aspect_type: Type[Aspect],
         filter_criteria_map: Dict[str, str],
     ) -> Optional[Aspect]:
@@ -285,7 +284,7 @@ class DataHubGraph(DatahubRestEmitter):
         query_body = {
             "urn": entity_urn,
             "entity": guess_entity_type(entity_urn),
-            "aspect": aspect_name,
+            "aspect": aspect_type.ASPECT_NAME,
             "latestValue": True,
             "filter": {"or": [{"and": filter_criteria}]},
         }
@@ -298,7 +297,7 @@ class DataHubGraph(DatahubRestEmitter):
             if aspect_json:
                 return aspect_type.from_obj(json.loads(aspect_json), tuples=False)
             else:
-                raise OperationalError(
+                raise GraphError(
                     f"Failed to find {aspect_type} in response {aspect_json}"
                 )
         return None
@@ -453,3 +452,8 @@ class DataHubGraph(DatahubRestEmitter):
             args["urnLike"] = urn_like
         results = self._post_generic(self._get_aspect_count_endpoint(), args)
         return results["value"]
+
+
+def get_default_graph() -> DataHubGraph:
+    (url, token) = get_url_and_token()
+    return DataHubGraph(DataHubGraphConfig(server=url, token=token))
